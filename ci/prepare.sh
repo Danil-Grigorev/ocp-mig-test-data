@@ -16,6 +16,7 @@ bring_up_cluster() {
   sudo docker cp $(docker create $IMAGEFOROC):/bin/oc /usr/local/bin/oc
   echo "Starting cluster"
   oc cluster up --public-hostname=$HOST_IP_ADDRESS
+  docker exec -it origin cat openshift.local.config/master/master-config.yaml
 }
 
 function install_velero() {

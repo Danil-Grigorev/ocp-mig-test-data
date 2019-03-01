@@ -1,1 +1,3 @@
 *.retry
+openshift.local.clusterup
+openshift.local.clusterup/*
