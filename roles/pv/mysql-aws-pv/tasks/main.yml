@@ -1,0 +1,53 @@
+- name: Create resources
+  block:
+    - name: Deploy mysql with pvc from yml
+      k8s:
+        state : present
+        definition: "{{ lookup('file', 'mysql-persistent-template.yml')}}"
+
+    - name: Check if deployed and bound
+      include: check.yml
+
+    - name: Populate the database with test data
+      when: with_data
+      vars:
+        pod_name: "{{ pod.resources[0].get('metadata', {}).get('name', '') }}"
+      shell: |
+              oc exec -n mysql-persistent {{ pod_name }} -- /bin/bash -c "curl https://gist.githubusercontent.com/evgeny-chufarov/b7ddea60a1d16b534462833fc23a32b7/raw/9d126b8d706a77c3cf24d75c6961e8ed50d00f27/mysql-data.sql > data.sql"
+              oc exec -n mysql-persistent {{ pod_name }} -- /bin/bash -c "mysql -uMYSQL_USER -pMYSQL_PASSWORD MYSQL_DATABASE < data.sql"
+
+    - name: Wait 1 munite for MySQL service to Start
+      pause:
+        minutes: 1
+
+    - name: Flush tables with read lock before backup
+      vars:
+        pod_name: "{{ pod.resources[0].get('metadata', {}).get('name', '') }}"
+      shell: |
+              oc exec -n mysql-persistent {{ pod_name }} -- /bin/bash -c "echo 'FLUSH TABLES WITH READ LOCK;' > lock.sql"
+              oc exec -n mysql-persistent {{ pod_name }} -- /bin/bash -c "mysql -u root < lock.sql"
+  when: with_resources
+
+- name: Create a backup
+  when: with_backup
+  block:
+    - name: Create backup
+      include_role:
+        name: backup
+
+    - name: Unlock tables after backup
+      vars:
+        pod_name: "{{ pod.resources[0].get('metadata', {}).get('name', '') }}"
+      shell: |
+              oc exec -n mysql-persistent {{ pod_name }} -- /bin/bash -c "echo 'UNLOCK TABLES;' > unlock.sql"
+              oc exec -n mysql-persistent {{ pod_name }} -- /bin/bash -c "mysql -u root < unlock.sql"
+
+- name: Restore service
+  when: with_restore
+  block:
+    - name: Start restoring
+      include_role:
+        name: restore
+
+    - name: Check if restored and bound
+      include: check.yml
